@@ -3,27 +3,30 @@ from pymysql import connections
 import os
 import random
 import argparse
-import time
 
-app = Flask(__name__)  # Fix: Use double underscores around 'name'
 
-# Environment configuration
+app = Flask(__name__)
+
 DBHOST = os.environ.get("DBHOST") or "localhost"
 DBUSER = os.environ.get("DBUSER") or "root"
-DBPWD = os.environ.get("DBPWD") or "rootpassword"
+DBPWD = os.environ.get("DBPWD") or "passwors"
 DATABASE = os.environ.get("DATABASE") or "employees"
 COLOR_FROM_ENV = os.environ.get('APP_COLOR') or "lime"
-DBPORT = os.environ.get("DBPORT")
-if DBPORT is not None:
-    try:
-        DBPORT = int(DBPORT)
-    except ValueError:
-        print("Invalid value for DBPORT. Using default port 3306.")
-        DBPORT = 3306
-else:
-    DBPORT = 3306
+DBPORT = int(os.environ.get("DBPORT"))
 
-# Supported color codes
+# Create a connection to the MySQL database
+db_conn = connections.Connection(
+    host= DBHOST,
+    port=DBPORT,
+    user= DBUSER,
+    password= DBPWD, 
+    db= DATABASE
+    
+)
+output = {}
+table = 'employee';
+
+# Define the supported color codes
 color_codes = {
     "red": "#e74c3c",
     "green": "#16a085",
@@ -34,62 +37,100 @@ color_codes = {
     "lime": "#C1FF9C",
 }
 
-# Supported colors string
+
+# Create a string of supported colors
 SUPPORTED_COLORS = ",".join(color_codes.keys())
 
-# Random color selection
-COLOR = random.choice(list(color_codes.keys()))
+# Generate a random color
+COLOR = random.choice(["red", "green", "blue", "blue2", "darkblue", "pink", "lime"])
 
-# Function to connect to the database with retry logic
-def connect_to_database(attempts=5, delay=5):
-    while attempts > 0:
-        try:
-            conn = connections.Connection(
-                host=DBHOST,
-                port=DBPORT,
-                user=DBUSER,
-                password=DBPWD,
-                db=DATABASE
-            )
-            return conn
-        except Exception as e:
-            print(f"Failed to connect to the database, retrying in {delay} seconds...")
-            time.sleep(delay)
-            attempts -= 1
-    raise Exception("Could not connect to the database after several attempts")
 
-# Initialize database connection
-db_conn = connect_to_database()
-
-# Define your Flask route handlers here...
-# For example:
 @app.route("/", methods=['GET', 'POST'])
 def home():
     return render_template('addemp.html', color=color_codes[COLOR])
 
-# ... rest of your route handlers ...
+@app.route("/about", methods=['GET','POST'])
+def about():
+    return render_template('about.html', color=color_codes[COLOR])
+    
+@app.route("/addemp", methods=['POST'])
+def AddEmp():
+    emp_id = request.form['emp_id']
+    first_name = request.form['first_name']
+    last_name = request.form['last_name']
+    primary_skill = request.form['primary_skill']
+    location = request.form['location']
 
-if __name__ == '__main__':  # Fix: Use double underscores around 'name'
-    # Command line argument for color
+  
+    insert_sql = "INSERT INTO employee VALUES (%s, %s, %s, %s, %s)"
+    cursor = db_conn.cursor()
+
+    try:
+        
+        cursor.execute(insert_sql,(emp_id, first_name, last_name, primary_skill, location))
+        db_conn.commit()
+        emp_name = "" + first_name + " " + last_name
+
+    finally:
+        cursor.close()
+
+    print("all modification done...")
+    return render_template('addempoutput.html', name=emp_name, color=color_codes[COLOR])
+
+@app.route("/getemp", methods=['GET', 'POST'])
+def GetEmp():
+    return render_template("getemp.html", color=color_codes[COLOR])
+
+
+@app.route("/fetchdata", methods=['GET','POST'])
+def FetchData():
+    emp_id = request.form['emp_id']
+
+    output = {}
+    select_sql = "SELECT emp_id, first_name, last_name, primary_skill, location from employee where emp_id=%s"
+    cursor = db_conn.cursor()
+
+    try:
+        cursor.execute(select_sql,(emp_id))
+        result = cursor.fetchone()
+        
+        # Add No Employee found form
+        output["emp_id"] = result[0]
+        output["first_name"] = result[1]
+        output["last_name"] = result[2]
+        output["primary_skills"] = result[3]
+        output["location"] = result[4]
+        
+    except Exception as e:
+        print(e)
+
+    finally:
+        cursor.close()
+
+    return render_template("getempoutput.html", id=output["emp_id"], fname=output["first_name"],
+                           lname=output["last_name"], interest=output["primary_skills"], location=output["location"], color=color_codes[COLOR])
+
+if __name__ == '__main__':
+    
+    # Check for Command Line Parameters for color
     parser = argparse.ArgumentParser()
     parser.add_argument('--color', required=False)
     args = parser.parse_args()
 
     if args.color:
-        print(f"Color from command line argument = {args.color}")
-        COLOR = args.color.lower()
+        print("Color from command line argument =" + args.color)
+        COLOR = args.color
         if COLOR_FROM_ENV:
-            print(f"A color was set through the environment variable - {COLOR_FROM_ENV}. However, color from the command line argument takes precedence.")
+            print("A color was set through environment variable -" + COLOR_FROM_ENV + ". However, color from command line argument takes precendence.")
     elif COLOR_FROM_ENV:
-        print(f"No Command line argument. Color from the environment variable = {COLOR_FROM_ENV}")
-        COLOR = COLOR_FROM_ENV.lower()
+        print("No Command line argument. Color from environment variable =" + COLOR_FROM_ENV)
+        COLOR = COLOR_FROM_ENV
     else:
-        print(f"No command line argument or environment variable. Picking a Random Color = {COLOR}")
+        print("No command line argument or environment variable. Picking a Random Color =" + COLOR)
 
     # Check if input color is a supported one
     if COLOR not in color_codes:
-        print(f"Color not supported. Received '{COLOR}' expected one of {SUPPORTED_COLORS}")
+        print("Color not supported. Received '" + COLOR + "' expected one of " + SUPPORTED_COLORS)
         exit(1)
 
-    # Run the Flask app
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    app.run(host='0.0.0.0',port=8080,debug=True)
